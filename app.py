@@ -6,6 +6,19 @@ from db_manager import initialize_database, add_user, log_search, get_user_by_na
 
 initialize_database()
 
+CUNY_COLLEGES = [
+    "Baruch College", "Borough of Manhattan Community College", "Bronx Community College",
+    "Brooklyn College", "College of Staten Island", "Guttman Community College",
+    "Hostos Community College", "Hunter College", "John Jay College of Criminal Justice",
+    "Kingsborough Community College", "LaGuardia Community College", "Lehman College",
+    "Macaulay Honors College", "Medgar Evers College", "New York City College of Technology",
+    "Queens College", "Queensborough Community College", "Stella and Charles Guttman Community College",
+    "The City College of New York", "York College", "CUNY Graduate Center",
+    "CUNY Graduate School of Public Health & Health Policy", "CUNY School of Labor and Urban Studies",
+    "CUNY School of Law", "CUNY School of Professional Studies", "Craig Newmark Graduate School of Journalism at CUNY",
+    "Other Organization", "Unaffiliated"
+]
+
 # 1. Page Config
 st.set_page_config(page_title="CUNY Civic Discovery", layout="wide", page_icon="🏙️")
 
@@ -52,11 +65,9 @@ if 'user_profile' not in st.session_state:
             name = st.text_input("Full Name *")
             campus = st.selectbox(
                 "Campus Affiliation *",
-                ["Baruch College", "Bronx CC", "Brooklyn College", "New York City College of Technology",
-                 "Hostos CC", "Hunter College", "John Jay College", "LaGuardia CC",
-                 "Lehman College", "Queens College", "Other"],
+                CUNY_COLLEGES,
                 index=None,
-                placeholder="Start typing your campus..."
+                placeholder="Select or type your campus..."
             )
             role = st.text_input("Role (e.g., Faculty, Student, Admin) (Optional)")
             focus = st.text_input("What is your primary civic focus? (Optional)")
@@ -122,13 +133,12 @@ else:
         with tab1:
             with st.form("profile_update_form"):
                 new_email = st.text_input("Email Address", value=profile.get('email', ''))
-                campuses = ["Baruch College", "Bronx CC", "Brooklyn College", "New York City College of Technology",
-                            "Hostos CC", "Hunter College", "John Jay College", "LaGuardia CC", "Lehman College",
-                            "Queens College", "Other"]
+                campuses = CUNY_COLLEGES
                 current_campus = profile.get('campus')
-                campus_idx = campuses.index(current_campus) if current_campus in campuses else None
+                # Find index of current campus to set as default
+                campus_idx = CUNY_COLLEGES.index(current_campus) if current_campus in CUNY_COLLEGES else None
 
-                new_campus = st.selectbox("Campus Affiliation", campuses, index=campus_idx)
+                new_campus = st.selectbox("Campus Affiliation", CUNY_COLLEGES, index=campus_idx)
                 new_role = st.text_input("Role", value=profile.get('role', ''))
                 new_focus = st.text_input("Primary Civic Focus", value=profile.get('focus', ''))
                 new_projects = st.text_area("Current Projects & Challenges", value=profile.get('projects', ''),
