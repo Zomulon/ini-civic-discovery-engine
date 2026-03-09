@@ -123,7 +123,7 @@ if 'user_profile' not in st.session_state:
                             "projects": u_projects if u_projects else "",
                             "linked_contact_id": u_linked_id
                         }
-                        greeting = f"Welcome back, {name}! Your AI Copilot is ready on the \"Ask copilot"\" text below."
+                        greeting = f"Welcome back, {name}! Your AI Copilot is ready on the \"Ask copilot\" text below."
                     else:
                         user_id = add_user(name, campus, role, final_focus)
                         st.session_state.user_profile = {
