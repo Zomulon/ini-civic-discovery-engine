@@ -110,7 +110,7 @@ if 'user_profile' not in st.session_state:
 
             if submitted:
                 if name and campus:
-                    final_focus = focus if focus.strip() else "Discovering Opportunities"
+                    final_focus = focus if focus else "Discovering Opportunities"
                     existing_user = get_user_by_name(name)
 
                     if existing_user:
