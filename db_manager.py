@@ -162,6 +162,11 @@ def initialize_database():
     except sqlite3.OperationalError:
         pass  # The column already exists, safely ignore
 
+    try:
+        cursor.execute("ALTER TABLE Users ADD COLUMN linked_contact_id TEXT")
+    except sqlite3.OperationalError:
+        pass  # The column already exists, safely ignore
+
     conn.commit()
     conn.close()
 
@@ -187,10 +192,10 @@ def add_user(name, campus, role, focus):
 
 
 def get_user_by_name(name):
-    """Retrieves all 6 data points for an existing user."""
+    """Retrieves all 7 data points for an existing user."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT user_id, campus, role, focus, email, projects FROM Users WHERE name = ?", (name,))
+    cursor.execute("SELECT user_id, campus, role, focus, email, projects, linked_contact_id FROM Users WHERE name = ?", (name,))
     user = cursor.fetchone()
     conn.close()
     return user
@@ -257,3 +262,54 @@ def get_saved_collaborations(user_id):
     df = pd.read_sql_query(query, conn, params=(user_id,))
     conn.close()
     return df
+
+
+def publish_user_to_directory(user_id, profile):
+    """Inserts or updates the user's profile in the public Network_Contacts table."""
+    import uuid
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # 1. Check if the user already has a linked contact ID
+    cursor.execute("SELECT linked_contact_id FROM Users WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    linked_id = result[0] if result and result[0] else None
+
+    # 2. If not, generate a unique ID and save it to the Users table
+    if not linked_id:
+        linked_id = f"USER_{user_id}_{uuid.uuid4().hex[:8]}"
+        cursor.execute("UPDATE Users SET linked_contact_id = ? WHERE user_id = ?", (linked_id, user_id))
+
+    # 3. Check if they are already in the public directory
+    cursor.execute("SELECT ID FROM Network_Contacts WHERE ID = ?", (linked_id,))
+    exists = cursor.fetchone()
+
+    name = profile.get('name', '')
+    email = profile.get('email', '')
+    role = profile.get('role', '')
+    campus = profile.get('campus', '')
+    focus = profile.get('focus', '')
+    projects = profile.get('projects', '')
+
+    # 4. Insert or Update their public card
+    if exists:
+        cursor.execute("""
+                       UPDATE Network_Contacts
+                       SET "Contact Name"         = ?,
+                           "Email/Phone/LinkedIn" = ?,
+                           "Role/Title"           = ?,
+                           Campus                 = ?,
+                           "Civic Domains"        = ?,
+                           "Notes / Insights"     = ?
+                       WHERE ID = ?
+                       """, (name, email, role, campus, focus, projects, linked_id))
+    else:
+        cursor.execute("""
+                       INSERT INTO Network_Contacts (ID, "Contact Name", "Email/Phone/LinkedIn", "Role/Title", Campus,
+                                                     "Civic Domains", "Notes / Insights")
+                       VALUES (?, ?, ?, ?, ?, ?, ?)
+                       """, (linked_id, name, email, role, campus, focus, projects))
+
+    conn.commit()
+    conn.close()
+    return linked_id

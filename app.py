@@ -2,22 +2,44 @@ import streamlit as st
 import pandas as pd
 from discovery_engine import search_civic_network, generate_civic_insight
 from db_manager import initialize_database, add_user, log_search, get_user_by_name, update_user_profile, \
-    save_collaboration, get_saved_collaborations
+    save_collaboration, get_saved_collaborations, publish_user_to_directory
 
 initialize_database()
 
-CUNY_COLLEGES = [
-    "Baruch College", "Borough of Manhattan Community College", "Bronx Community College",
-    "Brooklyn College", "College of Staten Island", "Guttman Community College",
-    "Hostos Community College", "Hunter College", "John Jay College of Criminal Justice",
-    "Kingsborough Community College", "LaGuardia Community College", "Lehman College",
-    "Macaulay Honors College", "Medgar Evers College", "New York City College of Technology",
-    "Queens College", "Queensborough Community College", "Stella and Charles Guttman Community College",
-    "The City College of New York", "York College", "CUNY Graduate Center",
-    "CUNY Graduate School of Public Health & Health Policy", "CUNY School of Labor and Urban Studies",
-    "CUNY School of Law", "CUNY School of Professional Studies", "Craig Newmark Graduate School of Journalism at CUNY",
-    "Other Organization", "Unaffiliated"
-]
+# The "Bridge": Maps messy CSV shorthand to clean UI names
+CUNY_MAP = {
+    "BMCC": "Borough of Manhattan Community College",
+    "Baruch College": "Baruch College",
+    "Bronx Community College": "Bronx Community College",
+    "Brooklyn College": "Brooklyn College",
+    "City College": "The City College of New York",
+    "College of Staten Island": "College of Staten Island",
+    "Graduate Center": "CUNY Graduate Center",
+    "Guttman Community College": "Guttman Community College",
+    "Hostos Community College": "Hostos Community College",
+    "Hunter College": "Hunter College",
+    "John Jay College": "John Jay College of Criminal Justice",
+    "Kingsborough CC": "Kingsborough Community College",
+    "Kingsborough Community College": "Kingsborough Community College",
+    "LaGuardia CC": "LaGuardia Community College",
+    "Lehman College": "Lehman College",
+    "Macaulay Honors": "Macaulay Honors College",
+    "Medgar Evers": "Medgar Evers College",
+    "Medgar Evers College": "Medgar Evers College",
+    "NYC College of Technology": "New York City College of Technology",
+    "city tech": "New York City College of Technology",
+    "Queens College": "Queens College",
+    "Queensborough CC": "Queensborough Community College",
+    "York College": "York College",
+    "CUNY Law School": "CUNY School of Law",
+    "CUNY SPS": "CUNY School of Professional Studies",
+    "School of Public Health": "CUNY Graduate School of Public Health & Health Policy",
+    "School of Labor & Urban Studies": "CUNY School of Labor and Urban Studies",
+    "Craig Newmark Graduate School of Journalism": "Craig Newmark Graduate School of Journalism at CUNY",
+}
+
+
+CUNY_COLLEGES = sorted(list(set(CUNY_MAP.values())))
 
 # 1. Page Config
 st.set_page_config(page_title="CUNY Civic Discovery", layout="wide", page_icon="🏙️")
@@ -69,8 +91,21 @@ if 'user_profile' not in st.session_state:
                 index=None,
                 placeholder="Select or type your campus..."
             )
-            role = st.text_input("Role (e.g., Faculty, Student, Admin) (Optional)")
-            focus = st.text_input("What is your primary civic focus? (Optional)")
+            ROLE_BUCKETS = ["Faculty & Teachers", "Students & Fellows", "Administration", "External Partners", "INI Staff"]
+            role = st.selectbox(
+                "Role Category (Optional)",
+                ROLE_BUCKETS,
+                index=None,
+                placeholder="Select your role..."
+            )
+            FOCUS_BUCKETS = [
+                "Education & Youth Development", "Justice, Policy & Government",
+                "Health & Wellness", "Community & Civic Engagement",
+                "Economic Empowerment & Workforce", "Arts, Media & Culture",
+                "Environment & Sustainability", "Technology, Data & Innovation",
+                "Research & Social Sciences", "Other / Cross-Cutting"
+            ]
+            focus = st.selectbox("Primary Civic Focus (Optional)", FOCUS_BUCKETS, index=None, placeholder="Select your focus...")
             submitted = st.form_submit_button("Enter the Network")
 
             if submitted:
@@ -79,13 +114,14 @@ if 'user_profile' not in st.session_state:
                     existing_user = get_user_by_name(name)
 
                     if existing_user:
-                        # Unpack 6 fields if returning user
-                        u_id, u_campus, u_role, u_focus, u_email, u_projects = existing_user
+                        # Unpack 7 fields if returning user
+                        u_id, u_campus, u_role, u_focus, u_email, u_projects, u_linked_id = existing_user
                         st.session_state.user_profile = {
                             "user_id": u_id, "name": name, "campus": u_campus,
                             "role": u_role, "focus": u_focus,
                             "email": u_email if u_email else "",
-                            "projects": u_projects if u_projects else ""
+                            "projects": u_projects if u_projects else "",
+                            "linked_contact_id": u_linked_id
                         }
                         greeting = f"Welcome back, {name}! Your AI Copilot is ready on the right."
                     else:
@@ -93,7 +129,7 @@ if 'user_profile' not in st.session_state:
                         st.session_state.user_profile = {
                             "user_id": user_id, "name": name, "campus": campus,
                             "role": role, "focus": final_focus,
-                            "email": "", "projects": ""
+                            "email": "", "projects": "", "linked_contact_id": None
                         }
                         greeting = f"Welcome, {name}! Your AI Copilot is ready to map the network."
 
@@ -139,8 +175,19 @@ else:
                 campus_idx = CUNY_COLLEGES.index(current_campus) if current_campus in CUNY_COLLEGES else None
 
                 new_campus = st.selectbox("Campus Affiliation", CUNY_COLLEGES, index=campus_idx)
-                new_role = st.text_input("Role", value=profile.get('role', ''))
-                new_focus = st.text_input("Primary Civic Focus", value=profile.get('focus', ''))
+                ROLE_BUCKETS = ["Faculty & Teachers", "Students & Fellows", "Administration", "External Partners",
+                                "INI Staff"]
+                current_role = profile.get('role')
+                # Find their saved role in the list, otherwise leave it blank
+                role_idx = ROLE_BUCKETS.index(current_role) if current_role in ROLE_BUCKETS else None
+
+                new_role = st.selectbox("Role Category", ROLE_BUCKETS, index=role_idx)
+
+                FOCUS_BUCKETS = ["Education & Youth", "Justice & Policy", "Health & Wellness", "Environment & Sustainability", "Economic Empowerment", "Arts & Culture", "Community Building"]
+                current_focus = profile.get('focus')
+                focus_idx = FOCUS_BUCKETS.index(current_focus) if current_focus in FOCUS_BUCKETS else None
+                new_focus = st.selectbox("Primary Civic Focus", FOCUS_BUCKETS, index=focus_idx)
+
                 new_projects = st.text_area("Current Projects & Challenges", value=profile.get('projects', ''),
                                             height=150)
 
@@ -152,6 +199,15 @@ else:
                     })
                     st.success("✅ Profile updated!")
                     st.rerun()
+
+            # THE NEW PUBLISH BUTTON
+            st.markdown("---")
+            st.subheader("🌍 Public Directory")
+            st.write("Publish your profile to the public network so others can find your card and see your map connections. (Make sure you 'Save Changes' above first!)")
+            if st.button("🚀 Publish My Profile to Directory"):
+                publish_user_to_directory(profile['user_id'], st.session_state.user_profile)
+                st.success("🎉 You are now live in the Public Directory! Your card and ecosystem map are visible to the network.")
+                st.balloons()
 
         with tab2:
             try:
@@ -192,6 +248,9 @@ else:
                             st.markdown(f"**🎯 Focus:** {target_person['Civic Domains']}")
                         if pd.notna(target_person.get('Program/Org Affiliation')):
                             st.markdown(f"**🏢 Program/Org:** {target_person['Program/Org Affiliation']}")
+
+                    st.markdown(
+                        "**Map Key:** 🟡 **Target Contact** | 🟣 **Civic Focus** | 🟢 **Location** | 🔵 **Shared Connection**")
 
                     # 2. Map Toggle Switch
                     map_mode = st.radio(
@@ -290,32 +349,102 @@ else:
             else:
                 st.subheader("🗂️ Civic Directory")
 
-                # Filters
-                f_col1, f_col2, f_col3, f_col4 = st.columns(4)
-                with f_col1:
-                    search_name = st.text_input("🔍 Search Name")
-                with f_col2:
-                    all_campuses = sorted(df['Campus'].dropna().unique().tolist())
-                    sel_campuses = st.multiselect("🏫 Campus", all_campuses)
-                with f_col3:
-                    all_domains = set(item.strip() for d in df['Civic Domains'].dropna() for item in str(d).split(','))
-                    sel_domains = st.multiselect("🎯 Focus", sorted(list(all_domains)))
-                with f_col4:
-                    all_roles = sorted(df['Role/Title'].dropna().unique().tolist())
-                    sel_roles = st.multiselect("💼 Role", all_roles)
+                # --- THE WELCOME EXPANDER ---
+                with st.expander("👋 How to use this workspace (and why it matters)"):
+                    st.markdown("""
+                    **Welcome to the CUNY Civic Discovery Network!** This tool was built in partnership with the **Institute for Nonpartisan Innovation (INI)** to break down silos across the CUNY system and foster powerful cross-campus collaborations. 
+                    
+                    **How to get the most out of the platform:**
+                    * 🔍 **Find Partners:** Use the filters below to discover faculty, students, and organizations working in your specific civic domain.
+                    * 🕸️ **Map the Ecosystem:** Click "🗺️ View Connections" on any contact card to generate a visual web of how they connect to other campuses and topics.
+                    * 🤖 **Ask the AI:** Use the Civic Copilot on the right to instantly analyze trends, summarize notes, or find highly specific collaborations across the 1,300+ contact database.
+                    """)
+                # ----------------------------
 
-                # Filter Logic
+                # ==========================================
+                # THE UPGRADED FILTERS (5 Columns)
+                # ==========================================
+                f_col1, f_col2, f_col3, f_col4, f_col5 = st.columns(5)
+
+                with f_col1:
+                    search_keyword = st.text_input("🔍 Name or Keyword")
+
+                with f_col2:
+                    # Logic: If it's in our CUNY_MAP, it's a Campus.
+                    all_locations = df['Campus'].dropna().unique().tolist()
+                    cuny_only = sorted(list(set([CUNY_MAP[c] for c in all_locations if c in CUNY_MAP])))
+                    sel_cuny = st.multiselect("🏫 CUNY Campus", cuny_only)
+
+                with f_col3:
+                    # Logic: If it's NOT in our CUNY_MAP, it's a Community Partner.
+                    partners_only = sorted([c for c in all_locations if c not in CUNY_MAP])
+                    sel_partners = st.multiselect("🌍 Community Partner", partners_only)
+
+                with f_col4:
+                    # The Hybrid UI Bucketing Logic for Domains
+                    DOMAIN_MAPPINGS = {
+                        "Education & Youth Development": r"Education|Youth|School|K-12|Tutoring|College|Student|Academia",
+                        "Justice, Policy & Government": r"Justice|\bLaw\b|\bLegal\b|Policy|Advocacy|Voting|Democracy|Rights|Equity|Government|Immigration",
+                        "Health & Wellness": r"Health|Medical|Mental Health|Food Security|Nutrition|\bCare\b|Wellness",
+                        "Community & Civic Engagement": r"Community|Housing|Urban|Planning|Neighborhood|Civic",
+                        "Economic Empowerment & Workforce": r"Economic|Workforce|Jobs|Business|Entrepreneurship|Career",
+                        "Arts, Media & Culture": r"\bArt\b|\bArts\b|Culture|Media|Journalism|History|Communications",
+                        "Environment & Sustainability": r"Environment|Climate|Sustainability|Energy|Green",
+                        "Technology, Data & Innovation": r"Technology|Tech|Data|\bSTEM\b|Innovation|\bIT\b",
+                        "Research & Social Sciences": r"Research|Sociology|Political Science|Science|Study",
+                        "Other / Cross-Cutting": r"Other|Cross|Interdisciplinary"
+                    }
+                    sel_domains = st.multiselect("🎯 Focus Area", list(DOMAIN_MAPPINGS.keys()))
+
+                with f_col5:
+                    # The Hybrid UI Bucketing Logic
+                    ROLE_MAPPINGS = {
+                        "Faculty & Teachers": r"Professor|Adjunct|Faculty|Lecturer|Instructor|Teacher",
+                        "Students & Fellows": r"Student|Candidate|Fellow|Scholar",
+                        "Administration": r"Dean|Director|Provost|President|Coordinator|Manager|Chair|Admin",
+                        "External Partners": r"Founder|\bCEO\b|Consultant|Partner",
+                        "INI Staff": r"\bINI\b|Vngle"
+                    }
+                    sel_roles = st.multiselect("💼 Role Category", list(ROLE_MAPPINGS.keys()))
+
+                # ==========================================
+                # THE UPGRADED FILTERING LOGIC
+                # ==========================================
                 filtered_df = df.copy()
-                if search_name:
-                    filtered_df = filtered_df[
-                        filtered_df['Contact Name'].fillna('').str.contains(search_name, case=False)]
-                if sel_campuses:
-                    filtered_df = filtered_df[filtered_df['Campus'].isin(sel_campuses)]
+
+                if search_keyword:
+                    # Search across Name, Domains, Affiliation, and Notes simultaneously!
+                    search_mask = (
+                        filtered_df['Contact Name'].fillna('').str.contains(search_keyword, case=False) |
+                        filtered_df['Civic Domains'].fillna('').str.contains(search_keyword, case=False) |
+                        filtered_df['Notes / Insights'].fillna('').str.contains(search_keyword, case=False) |
+                        filtered_df['Program/Org Affiliation'].fillna('').str.contains(search_keyword, case=False)
+                    )
+                    filtered_df = filtered_df[search_mask]
+
+                # Combine the two location dropdowns
+                if sel_cuny or sel_partners:
+                    # We need to find all the "raw" names that match the user's "clean" selections
+                    raw_targets = []
+
+                    # Add partners directly
+                    raw_targets.extend(sel_partners)
+
+                    # Add all raw variations for the selected CUNY schools
+                    for raw_name, clean_name in CUNY_MAP.items():
+                        if clean_name in sel_cuny:
+                            raw_targets.append(raw_name)
+
+                    filtered_df = filtered_df[filtered_df['Campus'].isin(raw_targets)]
+
                 if sel_domains:
-                    pattern = '|'.join(sel_domains)
-                    filtered_df = filtered_df[filtered_df['Civic Domains'].fillna('').str.contains(pattern, case=False)]
+                    combined_domain_pattern = '|'.join([DOMAIN_MAPPINGS[d] for d in sel_domains])
+                    filtered_df = filtered_df[filtered_df['Civic Domains'].fillna('').str.contains(combined_domain_pattern, case=False, regex=True)]
+
                 if sel_roles:
-                    filtered_df = filtered_df[filtered_df['Role/Title'].isin(sel_roles)]
+                    # Combine the regex patterns for the selected buckets and filter the raw text
+                    combined_pattern = '|'.join([ROLE_MAPPINGS[role] for role in sel_roles])
+                    filtered_df = filtered_df[filtered_df['Role/Title'].fillna('').str.contains(combined_pattern, case=False, regex=True)]
 
                 st.markdown(f"**Showing {len(filtered_df)} Contacts**")
 
@@ -358,12 +487,10 @@ else:
         # ==========================================
         with col_copilot:
             st.markdown("### 🤖 Civic Copilot")
+            st.caption("💡 **Tip:** Ask questions that mention specific people, topics, or campuses/locations (e.g., *\"Who does food security at Lehman?\"* or *\"Explain Sada Jaman's work?\"*) for fast results. "
+                       "Open-ended questions will automatically trigger a full-network Deep Search that may take a long time to complete.")
 
-            search_mode = st.radio(
-                "Search Mode",
-                ["⚡ Quick Search", "🧠 Deep Search"],
-                horizontal=True
-            )
+
 
             # The Container (fixed height so it doesn't vanish from the screen)
             chat_container = st.container(height=600)
@@ -392,17 +519,14 @@ else:
                                 log_search(profile['user_id'], prompt)
 
                                 matches, filters = search_civic_network(prompt, df)
-
-                                if search_mode == "⚡ Quick Search":
-                                    if not matches.empty:
-                                        insight = generate_civic_insight(prompt, matches)
-                                        response = f"{insight}\n\n*(Analyzed {len(matches)} specific entries)*"
-                                    else:
-                                        response = "I couldn't find enough specific data. Try a broader term or switch to Deep Search."
-
-                                elif search_mode == "🧠 Deep Search":
+                                if not matches.empty:
+                                    insight = generate_civic_insight(prompt, matches)
+                                    response = f"{insight}\n\n*(Analyzed {len(matches)} specific entries)*"
+                                else:
+                                    st.info("Not enough specific matches. Expanding search to the entire network...")
                                     insight = generate_civic_insight(prompt, df)
-                                    response = f"**Deep Insight:**\n\n{insight}\n\n*(Analyzed all {len(df)} entries)*"
+                                    response = f"**Deep Insight (Expanded Search):**\n\n{insight}\n\n*(Analyzed all {len(df)} entries)*"
+
 
                             except Exception as e:
                                 # THE MAGIC FIX: If anything crashes, the AI will tell us exactly what it is.
